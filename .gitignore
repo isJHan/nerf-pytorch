@@ -1,9 +1,12 @@
-*.npz
+**/.ipynb_checkpoints
+**/__pycache__
+*.png
+*.mp4
 *.npy
-__pychace__/**
-
+*.npz
+*.dae
 data/*
 !data/mydata/generate.ipynb
-
 *.pyc
 logs/*
+.DS_STORE
