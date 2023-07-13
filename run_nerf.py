@@ -20,6 +20,8 @@ from load_LINEMOD import load_LINEMOD_data
 
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# device = torch.device('mps')
+
 np.random.seed(0)
 DEBUG = False
 
@@ -538,6 +540,7 @@ def train():
 
     # Load data
     K = None
+    
     if args.dataset_type == 'llff':
         images, poses, bds, render_poses, i_test = load_llff_data(args.datadir, args.factor,
                                                                   recenter=True, bd_factor=.75,
@@ -734,6 +737,8 @@ def train():
 
             if N_rand is not None:
                 rays_o, rays_d = get_rays(H, W, K, torch.Tensor(pose))  # (H, W, 3), (H, W, 3)
+                # rays_o = rays_o.to('mps')
+                # rays_d = rays_d.to('mps')
 
                 if i < args.precrop_iters:
                     dH = int(H//2 * args.precrop_frac)
@@ -873,6 +878,8 @@ def train():
 
 
 if __name__=='__main__':
-    torch.set_default_tensor_type('torch.cuda.FloatTensor')
+    # torch.set_default_tensor_type('torch.cuda.FloatTensor')
+    torch.set_default_tensor_type('torch.FloatTensor')
+    # torch.FloatTensor
 
     train()
