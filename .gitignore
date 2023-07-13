@@ -6,6 +6,8 @@
 *.npz
 *.dae
 data/*
+!data/mydata/generate.ipynb
+*.pyc
 logs/*
 .DS_STORE
 .vscode/*

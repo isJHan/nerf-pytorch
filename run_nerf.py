@@ -544,7 +544,14 @@ def train():
 
     # Load data
     K = None
-    
+    # fx,fy=655.61014,650.73568
+    # cx,cy=654.61525,472.77300
+    # K = np.array([
+    #     [fx,0,cx],
+    #     [0,fy,cy],
+    #     [0,0,1]
+    # ])
+    # K = K / 4
     if args.dataset_type == 'llff':
         images, poses, bds, render_poses, i_test = load_llff_data(args.datadir, args.factor,
                                                                   recenter=True, bd_factor=.75,
@@ -897,8 +904,8 @@ def train():
 
 
 if __name__=='__main__':
-    # torch.set_default_tensor_type('torch.cuda.FloatTensor')
-    torch.set_default_tensor_type('torch.FloatTensor')
+    torch.set_default_tensor_type('torch.cuda.FloatTensor')
+    # torch.set_default_tensor_type('torch.FloatTensor')
     # torch.FloatTensor
 
     train()
