@@ -10,3 +10,4 @@ data/*
 *.pyc
 logs/*
 .DS_STORE
+.vscode/**
