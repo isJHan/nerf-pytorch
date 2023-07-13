@@ -9,6 +9,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from tqdm import tqdm, trange
 
+from torch.utils.tensorboard import SummaryWriter
+
 import matplotlib.pyplot as plt
 
 from run_nerf_helpers import *
@@ -110,7 +112,7 @@ def render(H, W, K, chunk=1024*32, rays=None, c2w=None, ndc=True,
         viewdirs = viewdirs / torch.norm(viewdirs, dim=-1, keepdim=True)
         viewdirs = torch.reshape(viewdirs, [-1,3]).float()
 
-    sh = rays_d.shape # [..., 3]
+    sh = rays_d.shape # [..., 3] # ! 这里保存了原始形状
     if ndc:
         # for forward facing scenes
         rays_o, rays_d = ndc_rays(H, W, K[0][0], 1., rays_o, rays_d)
@@ -194,7 +196,7 @@ def create_nerf(args):
     grad_vars = list(model.parameters())
 
     model_fine = None
-    if args.N_importance > 0:
+    if args.N_importance > 0: # fine sample
         model_fine = NeRF(D=args.netdepth_fine, W=args.netwidth_fine,
                           input_ch=input_ch, output_ch=output_ch, skips=skips,
                           input_ch_views=input_ch_views, use_viewdirs=args.use_viewdirs).to(device)
@@ -243,12 +245,14 @@ def create_nerf(args):
         'network_fine' : model_fine,
         'N_samples' : args.N_samples,
         'network_fn' : model,
-        'use_viewdirs' : args.use_viewdirs,
+        'use_viewdirs' : args.use_viewdirs, # use full 5d input
         'white_bkgd' : args.white_bkgd,
         'raw_noise_std' : args.raw_noise_std,
     }
 
     # NDC only good for LLFF-style forward facing data
+    # https://zhuanlan.zhihu.com/p/532937226
+    # 某种特定轨迹下使用NDC效果更好
     if args.dataset_type != 'llff' or args.no_ndc:
         print('Not ndc!')
         render_kwargs_train['ndc'] = False
@@ -708,7 +712,7 @@ def train():
     print('VAL views are', i_val)
 
     # Summary writers
-    # writer = SummaryWriter(os.path.join(basedir, 'summaries', expname))
+    writer = SummaryWriter(os.path.join(basedir, 'summaries', expname, time.ctime()))
     
     start = start + 1
     for i in trange(start, N_iters):
@@ -747,7 +751,7 @@ def train():
                         torch.meshgrid(
                             torch.linspace(H//2 - dH, H//2 + dH - 1, 2*dH), 
                             torch.linspace(W//2 - dW, W//2 + dW - 1, 2*dW)
-                        ), -1)
+                        ), -1) # (200,200,2)
                     if i == start:
                         print(f"[Config] Center cropping of size {2*dH} x {2*dW} is enabled until iter {args.precrop_iters}")                
                 else:
@@ -764,7 +768,7 @@ def train():
         #####  Core optimization loop  #####
         rgb, disp, acc, extras = render(H, W, K, chunk=args.chunk, rays=batch_rays,
                                                 verbose=i < 10, retraw=True,
-                                                **render_kwargs_train)
+                                                **render_kwargs_train) # ? 为什么这里的 rgb.shape is (1024,3)
 
         optimizer.zero_grad()
         img_loss = img2mse(rgb, target_s)
@@ -773,7 +777,7 @@ def train():
         psnr = mse2psnr(img_loss)
 
         if 'rgb0' in extras:
-            img_loss0 = img2mse(extras['rgb0'], target_s)
+            img_loss0 = img2mse(extras['rgb0'], target_s) # ? rgb0 是什么
             loss = loss + img_loss0
             psnr0 = mse2psnr(img_loss0)
 
@@ -794,7 +798,7 @@ def train():
         #####           end            #####
 
         # Rest is logging
-        if i%args.i_weights==0:
+        if i%args.i_weights==0: # 10000
             path = os.path.join(basedir, expname, '{:06d}.tar'.format(i))
             torch.save({
                 'global_step': global_step,
@@ -804,7 +808,7 @@ def train():
             }, path)
             print('Saved checkpoints at', path)
 
-        if i%args.i_video==0 and i > 0:
+        if i%args.i_video==0 and i > 0: # 50000
             # Turn on testing mode
             with torch.no_grad():
                 rgbs, disps = render_path(render_poses, hwf, K, args.chunk, render_kwargs_test)
@@ -824,7 +828,7 @@ def train():
             testsavedir = os.path.join(basedir, expname, 'testset_{:06d}'.format(i))
             os.makedirs(testsavedir, exist_ok=True)
             print('test poses shape', poses[i_test].shape)
-            with torch.no_grad():
+            with torch.no_grad(): # gt_imgs is not used at render_path function
                 render_path(torch.Tensor(poses[i_test]).to(device), hwf, K, args.chunk, render_kwargs_test, gt_imgs=images[i_test], savedir=testsavedir)
             print('Saved test set')
 
@@ -832,6 +836,21 @@ def train():
     
         if i%args.i_print==0:
             tqdm.write(f"[TRAIN] Iter: {i} Loss: {loss.item()}  PSNR: {psnr.item()}")
+        
+        # about tensorboard
+        writer.add_scalar("mse",img_loss.item(), i)
+        writer.add_scalar("psnr", psnr.item(), i)
+        if i%args.i_img==0:
+            img_i = np.random.choice(i_val)
+            target = images[img_i]
+            pose = poses[img_i,:3,:4]
+            with torch.no_grad():
+                rgb, disp, acc, extras = render(H,W,K, chunk=args.chunk, c2w=pose,  **render_kwargs_test) # ? 为什么这里的 rgb.shape is (400,400,3) 答：在函数中保存了原始形状，返回前进行了 reshape
+            psnr = mse2psnr(img2mse(rgb, target))
+            
+            writer.add_image("image/render",to8b(rgb.cpu().numpy()).transpose((2,0,1)),i)
+            writer.add_image("image/gt",target.transpose(2,0,1),i)
+        
         """
             print(expname, i, psnr.numpy(), loss.numpy(), global_step.numpy())
             print('iter time {:.05f}'.format(dt))
