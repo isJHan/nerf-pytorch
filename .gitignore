@@ -1,7 +1,7 @@
 *.npz
 *.npy
 __pychace__/**
-imgs/**
+
 data/*
 !data/mydata/generate.ipynb
 
